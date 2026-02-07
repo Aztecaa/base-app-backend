@@ -1,71 +1,82 @@
-import express from 'express'
-import cors from 'cors'
-import dotenv from 'dotenv'
-import authRoutes from '../src/routes/auth.routes.js'
-import session from 'express-session'
-import { isAuthenticated, isSupervisor } from "../src/middlewares/auth.js"
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import session from 'express-session';
+import http from "http";
+import { Server } from "socket.io";
 
-// # Cargamos variables de entorno desde .env
-dotenv.config()
+import authRoutes from '../src/routes/auth.routes.js';
+import { isAuthenticated, isSupervisor } from "../src/middlewares/auth.js";
 
-// # Middleware para parsear JSON en requests
-const app = express()
+dotenv.config();
 
-// # Esto permite que Express entienda body en formato JSON sin necesidad de usar body-parser
-app.use(express.json())
+const app = express();
+const server = http.createServer(app);
 
+// Middlewares
+app.use(express.json());
 
-
-// # Elegimos la URL del frontend según entorno
+// CORS por entorno
 const allowedOrigin = process.env.NODE_ENV === 'production'
     ? process.env.FRONTEND_PROD
-    : process.env.FRONTEND_DEV
+    : process.env.FRONTEND_DEV;
 
-// # Middleware para permitir CORS (comunicación entre frontend y backend)
 app.use(cors({
     origin: allowedOrigin,
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // 🔑 aseguramos métodos permitidos
-    allowedHeaders: ['Content-Type', 'Authorization']  // 🔑 headers permitidos
-}))
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
-// # Configuración de sesiones
-// * Esto crea un objeto req.session que podemos usar en cualquier ruta
+// Sesiones
 app.use(session({
-    secret: process.env.SESSION_SECRET || 'dev-secret', // clave secreta
-    resave: false,       // # No guardar sesión si no hubo cambios
-    saveUninitialized: false, // # No guardar sesión vacía
-    cookie: { secure: process.env.NODE_ENV === 'production' } // # true si usamos https
-}))
+    secret: process.env.SESSION_SECRET || 'dev-secret',
+    resave: false,
+    saveUninitialized: false,
+    cookie: { secure: process.env.NODE_ENV === 'production' }
+}));
 
-// # Usar rutas de auth
-app.use('/auth', authRoutes)
+// Rutas auth
+app.use('/auth', authRoutes);
 
-// # Leemos los usuarios del .env USERS=[JSON]
-let users = []
+// Users desde env
+let users = [];
 try {
-    users = JSON.parse(process.env.USERS || "[]")
+    users = JSON.parse(process.env.USERS || "[]");
 } catch (error) {
-    console.error("Error al parsear USERS en .env:", error)
+    console.error("Error al parsear USERS:", error);
 }
 
-// # Endpoint GET /users → devuelve todos los usuarios cargados / TEST
-app.get('/users', (req, res) => {
-    res.json(users)
-})
+app.get('/users', (req, res) => res.json(users));
 
-// Ruta protegida
 app.get("/protect-route", isAuthenticated, (req, res) => {
-    res.json({ message: "Bienvenido la ruta para usuarios logueados", user: req.session.user })
-})
+    res.json({ message: "Ruta protegida", user: req.session.user });
+});
 
-// Ruta protegida para admin
 app.get("/admin", isSupervisor, (req, res) => {
-    res.json({ message: "Sección solo para supervisores" })
-})
+    res.json({ message: "Solo supervisores" });
+});
 
-// # Definimos el puerto de la app (por defecto 4000 o el de Render)
-const PORT = process.env.PORT || 4000
+// =======================
+// SOCKET.IO
+// =======================
+const io = new Server(server, {
+    cors: {
+        origin: allowedOrigin,
+        credentials: true,
+        methods: ["GET", "POST"]
+    }
+});
 
-// # Iniciamos el servidor en el puerto definido
-app.listen(PORT, () => console.log(`Servidor en puerto ${PORT}`))
+io.on("connection", (socket) => {
+    console.log("🟢 Cliente conectado:", socket.id);
+});
+
+// =======================
+// LISTEN
+// =======================
+const PORT = process.env.PORT || 4000;
+
+server.listen(PORT, () => {
+    console.log(`🚀 Server + Socket.IO escuchando en ${PORT}`);
+});
